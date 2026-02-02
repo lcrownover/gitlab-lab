@@ -17,6 +17,10 @@ provider "gitlab" {
   insecure = true
 }
 
+resource "gitlab_application_settings" "settings" {
+  signup_enabled = false
+}
+
 resource "gitlab_user" "participants" {
   for_each = toset([for i in range(1, 41) : format("%02d", i)])
 

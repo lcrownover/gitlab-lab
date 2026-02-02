@@ -13,7 +13,20 @@ compose_down_delete:
 	@docker compose down -v
 	@echo "Stack stopped and volumes deleted"
 
+wait_for_gitlab:
+	@echo "Waiting for GitLab to be fully ready..."
+	@until curl -sk 'https://gitlab.local/-/readiness?all=1' 2>/dev/null | jq -r .status | grep "ok" >/dev/null; do \
+			sleep 10; \
+			echo "Still waiting..."; \
+	done
+	@sleep 60 # extra because i don't think the runner is the last thing
+	@echo "GitLab is ready"
+
 create_admin_token:
+	@if [ -f .gitlab_admin_token ]; then \
+		echo "Token already exists"; \
+		exit 0; \
+	fi
 	@echo "Generating admin token..."
 	@docker exec gitlab gitlab-rails runner " \
 		token = User.find_by_username('root').personal_access_tokens.create!( \
@@ -25,14 +38,13 @@ create_admin_token:
 		puts token.token" | tail -1 | tee .gitlab_admin_token
 	  @echo "Saved admin token to .gitlab_admin_token"
 
-wait_for_gitlab:
-	@echo "Waiting for GitLab to be fully ready..."
-	@until curl -sk 'https://gitlab.local/-/readiness?all=1' 2>/dev/null | jq -r .status | grep "ok" >/dev/null; do \
-			sleep 10; \
-			echo "Still waiting..."; \
-	done
-	@sleep 60 # extra because i don't think the runner is the last thing
-	@echo "GitLab is ready"
+disable_signups:
+	@curl -sk --request PUT \
+		--header "PRIVATE-TOKEN: $(cat .gitlab_admin_token)" \
+		--header "Content-Type: application/json" \
+		--data '{"signup_enabled": false}' \
+		"https://gitlab.local/api/v4/application/settings"
+
 
 apply_terraform:
 	@echo "Applying Terraform..."
@@ -45,7 +57,7 @@ clean_state:
 	@rm -rf terraform* .gitlab_admin_token .terraform*
 	@echo "State deleted"
 
-run: compose_up wait_for_gitlab create_admin_token apply_terraform
+run: compose_up wait_for_gitlab create_admin_token disable_signups apply_terraform
 
 stop: compose_down
 
